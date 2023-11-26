@@ -1,0 +1,31 @@
+#!/bin/sh
+mount -t proc proc proc
+mount -t devtmpfs dev dev
+mount -t sysfs sys sys
+
+modprobe squashfs
+mkdir /mnt/modloop
+mount modloop-virt /mnt/modloop/
+mount --bind /mnt/modloop/modules/ /lib/modules
+
+modprobe virtio_blk
+modprobe btrfs
+mkdir /mnt/root
+mount /dev/vdb /mnt/root
+btrfs filesystem resize -32M /mnt/root >/dev/zero
+umount /mnt/root/
+cryptsetup reencrypt --encrypt --verify-passphrase --reduce-device-size 32M -q /dev/vdb
+UUID=$(cryptsetup luksUUID /dev/vdb)
+cryptsetup luksOpen /dev/vdb enc
+mount -o subvol=root /dev/mapper/enc /mnt/root
+sed -i /mnt/root/etc/default/grub -e "s/rootflags=subvol=root/rootflags=subvol=root rd.luks.uuid=$UUID/"
+umount /mnt/root/
+
+mkdir /mnt/boot
+modprobe ext4
+mount /dev/vda /mnt/boot/
+sed -i /mnt/boot/loader/entries/*.conf -e "s/rootflags=subvol=root/rootflags=subvol=root rd.luks.uuid=$UUID/"
+umount /mnt/boot/
+
+sync
+poweroff -f
